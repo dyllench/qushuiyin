@@ -3,11 +3,37 @@
 复用命令行工具 dewatermark.py 里的核心函数,只是把"用 args 对象"改成普通参数,
 并支持进度回调 progress_cb(已处理帧, 总帧)。
 """
+import os
 import tempfile
 
 import cv2
 
 import dewatermark as dw
+
+
+def process_image(input_path, output_path, regions, *,
+                  method="inpaint", feather=3, radius=3, ns=False):
+    """单张图片去水印。method: inpaint(默认,质量好) | delogo(边缘插值)。"""
+    img = cv2.imread(input_path)
+    if img is None:
+        raise ValueError("无法读取图片")
+    H, W = img.shape[:2]
+    regions = dw.clamp_regions(regions, W, H)
+    if not regions:
+        raise ValueError("没有有效的水印区域")
+
+    if method == "delogo":
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp.close()
+        cv2.imwrite(tmp.name, img)
+        flt = dw.build_delogo_filter(regions)
+        dw.run(["ffmpeg", "-y", "-loglevel", "error", "-i", tmp.name,
+                "-vf", flt, output_path])
+        os.unlink(tmp.name)
+    else:
+        m = cv2.INPAINT_NS if ns else cv2.INPAINT_TELEA
+        mask = dw.build_mask(regions, W, H, feather)
+        cv2.imwrite(output_path, dw.inpaint_frame(img, mask, radius, m))
 
 
 def process_video(input_path, output_path, regions, *,

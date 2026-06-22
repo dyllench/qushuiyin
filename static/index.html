@@ -3,202 +3,353 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>视频去水印</title>
+<title>去水印 · 视频 / 图片</title>
 <style>
+  :root {
+    --bg: #f4f5fb;
+    --card: #ffffff;
+    --ink: #1a1a2e;
+    --muted: #8a8aa3;
+    --line: #ececf3;
+    --brand: #6c5ce7;
+    --brand-2: #a55eea;
+    --brand-soft: #efeafe;
+    --ok: #00b894;
+    --danger: #e74c3c;
+    --shadow: 0 10px 30px rgba(76, 60, 160, .08);
+    --radius: 16px;
+  }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, "PingFang SC", system-ui, sans-serif;
-         max-width: 760px; margin: 0 auto; padding: 24px; color: #1d1d1f;
-         background: #f5f5f7; }
-  h1 { font-size: 22px; }
-  .card { background: #fff; border-radius: 12px; padding: 20px; margin: 16px 0;
-          box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-  .muted { color: #86868b; font-size: 13px; }
-  button { background: #0071e3; color: #fff; border: 0; border-radius: 8px;
-           padding: 10px 18px; font-size: 15px; cursor: pointer; }
-  button:disabled { background: #b0b0b5; cursor: not-allowed; }
-  button.secondary { background: #e8e8ed; color: #1d1d1f; }
-  input[type=file] { font-size: 14px; }
-  label { font-size: 14px; margin-right: 14px; }
-  #stage { position: relative; display: inline-block; cursor: crosshair;
-           touch-action: none; max-width: 100%; }
-  #frame { display: block; max-width: 100%; border-radius: 8px; }
-  #box { position: absolute; border: 2px solid #ff3b30;
-         background: rgba(255,59,48,.15); display: none; pointer-events: none; }
-  .row { margin: 10px 0; }
-  progress { width: 100%; height: 14px; }
-  video { max-width: 100%; border-radius: 8px; margin-top: 10px; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    margin: 0; padding: 0 16px 60px; color: var(--ink);
+    background: radial-gradient(1200px 500px at 50% -200px, #e9e4ff 0%, var(--bg) 60%);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  header { text-align: center; padding: 40px 0 24px; }
+  header h1 {
+    font-size: 30px; margin: 0 0 8px;
+    background: linear-gradient(90deg, var(--brand), var(--brand-2));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  header p { color: var(--muted); margin: 0; font-size: 14px; }
+
+  .tabs { display: flex; gap: 8px; background: #fff; padding: 6px;
+          border-radius: 14px; box-shadow: var(--shadow); margin: 0 auto 22px; max-width: 360px; }
+  .tab { flex: 1; text-align: center; padding: 11px 0; border-radius: 10px;
+         font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer;
+         border: 0; background: transparent; transition: .2s; }
+  .tab.active { color: #fff; background: linear-gradient(90deg, var(--brand), var(--brand-2)); }
+
+  .card { background: var(--card); border-radius: var(--radius); padding: 22px;
+          box-shadow: var(--shadow); margin-bottom: 18px; }
+  .muted { color: var(--muted); font-size: 13px; }
   .hidden { display: none; }
-  a.dl { display: inline-block; margin-top: 10px; }
+
+  .drop { display: block; border: 2px dashed #d6d3ec; border-radius: 14px; padding: 34px 18px;
+          text-align: center; cursor: pointer; transition: .2s; background: #fbfbff; }
+  .drop:hover, .drop.over { border-color: var(--brand); background: var(--brand-soft); }
+  .drop .icon { font-size: 38px; }
+  .drop .big { font-size: 16px; font-weight: 600; margin: 8px 0 4px; }
+  .drop input { display: none; }
+
+  .stage { position: relative; display: inline-block; max-width: 100%;
+           cursor: crosshair; touch-action: none; border-radius: 12px; overflow: hidden;
+           box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+  .stage img { display: block; max-width: 100%; }
+  .stage .box { position: absolute; border: 2px solid #fff;
+                box-shadow: 0 0 0 2px var(--brand), 0 0 0 9999px rgba(20,16,40,.35);
+                display: none; pointer-events: none; border-radius: 2px; }
+  .stage .tip { position: absolute; inset: 0; display: flex; align-items: center;
+                justify-content: center; pointer-events: none; }
+  .stage .tip span { background: rgba(20,16,40,.6); color: #fff; padding: 8px 14px;
+                     border-radius: 20px; font-size: 13px; backdrop-filter: blur(3px); }
+
+  .opts { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 4px; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px;
+          border: 1.5px solid var(--line); border-radius: 10px; cursor: pointer;
+          font-size: 14px; transition: .15s; user-select: none; }
+  .chip:hover { border-color: #cfc9f3; }
+  .chip input { accent-color: var(--brand); margin: 0; }
+  .chip.checked { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+         width: 100%; margin-top: 16px; padding: 14px; font-size: 16px; font-weight: 600;
+         color: #fff; border: 0; border-radius: 12px; cursor: pointer;
+         background: linear-gradient(90deg, var(--brand), var(--brand-2));
+         box-shadow: 0 8px 20px rgba(108, 92, 231, .3); transition: .15s; }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .btn:disabled { background: #d6d3ec; box-shadow: none; cursor: not-allowed; }
+  .btn.ghost { background: #fff; color: var(--brand); border: 1.5px solid var(--brand);
+               box-shadow: none; }
+
+  .bar { height: 10px; background: var(--line); border-radius: 6px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0;
+             background: linear-gradient(90deg, var(--brand), var(--brand-2)); transition: width .3s; }
+  .status { font-size: 14px; margin-bottom: 10px; }
+  .status.err { color: #e74c3c; }
+
+  video, .result-img { max-width: 100%; border-radius: 12px; display: block; }
+  .badge { display: inline-block; background: var(--ok); color: #fff; font-size: 13px;
+           padding: 3px 10px; border-radius: 20px; }
+  .row-h { display: flex; gap: 10px; }
+  .row-h > * { flex: 1; }
+  a.plain { text-decoration: none; }
 </style>
 </head>
 <body>
-<h1>🎬 视频去水印</h1>
-<p class="muted">上传视频 → 在画面上拖一个框圈住水印 → 开始处理 → 下载。框比水印略大一点效果更干净。</p>
+<div class="wrap">
+  <header>
+    <h1>✨ 智能去水印</h1>
+    <p>视频 / 图片皆可 · 框选水印一键去除 · 自动保留原音轨</p>
+  </header>
 
-<div class="card">
-  <input type="file" id="file" accept="video/*">
-  <div id="uploadHint" class="muted row">支持 mp4 / mov / mkv 等,最大 200MB。</div>
-</div>
-
-<div class="card hidden" id="editor">
-  <div class="muted row">在下图上<strong>按住鼠标拖动</strong>圈出水印(可重画):</div>
-  <div id="stage">
-    <img id="frame" alt="视频首帧">
-    <div id="box"></div>
+  <div class="tabs">
+    <button class="tab active" data-tab="video">🎬 视频</button>
+    <button class="tab" data-tab="image">🖼️ 图片</button>
   </div>
-  <div class="row">
-    <label><input type="radio" name="method" value="delogo" checked> 快速(delogo)</label>
-    <label><input type="radio" name="method" value="inpaint"> 高质量(inpaint,较慢)</label>
-  </div>
-  <div class="row">
-    <label><input type="checkbox" id="motion"> 水印会移动(逐帧追踪,较慢)</label>
-  </div>
-  <button id="go" disabled>开始去水印</button>
-  <span id="boxInfo" class="muted"></span>
-</div>
 
-<div class="card hidden" id="progressCard">
-  <div class="row" id="statusText">处理中…</div>
-  <progress id="bar" max="100" value="0"></progress>
-</div>
+  <!-- ============ 视频 ============ -->
+  <section id="panel-video">
+    <div class="card">
+      <label class="drop" id="vdrop">
+        <div class="icon">🎬</div>
+        <div class="big">点击或拖入视频</div>
+        <div class="muted">支持 mp4 / mov / mkv / webm 等,最大 200MB</div>
+        <input type="file" id="vfile" accept="video/*">
+      </label>
+      <div class="muted" id="vhint" style="margin-top:12px;display:none"></div>
+    </div>
 
-<div class="card hidden" id="resultCard">
-  <div class="row"><strong>✅ 处理完成</strong></div>
-  <video id="resultVideo" controls></video>
-  <div><a class="dl" id="dlLink"><button>⬇️ 下载成品</button></a></div>
+    <div class="card hidden" id="veditor">
+      <div class="muted" style="margin-bottom:12px">👇 在画面上 <b>按住拖动</b> 圈出水印(框比水印略大更干净,可重画)</div>
+      <div class="stage" id="vstage">
+        <img id="vframe" alt="视频首帧">
+        <div class="box" id="vbox"></div>
+        <div class="tip" id="vtip"><span>👆 在水印上拖一个框</span></div>
+      </div>
+      <div class="opts">
+        <label class="chip checked"><input type="radio" name="vmethod" value="delogo" checked> 快速</label>
+        <label class="chip"><input type="radio" name="vmethod" value="inpaint"> 高质量</label>
+        <label class="chip"><input type="checkbox" id="vmotion"> 水印会移动</label>
+      </div>
+      <button class="btn" id="vgo" disabled>开始去水印</button>
+    </div>
+
+    <div class="card hidden" id="vprogress">
+      <div class="status" id="vstatus">处理中…</div>
+      <div class="bar"><i id="vbar"></i></div>
+    </div>
+
+    <div class="card hidden" id="vresult">
+      <div style="margin-bottom:12px"><span class="badge">✓ 完成</span></div>
+      <video id="vvideo" controls></video>
+      <a class="plain" id="vdl" download><button class="btn" style="margin-top:14px">⬇️ 下载视频</button></a>
+    </div>
+  </section>
+
+  <!-- ============ 图片 ============ -->
+  <section id="panel-image" class="hidden">
+    <div class="card">
+      <label class="drop" id="idrop">
+        <div class="icon">🖼️</div>
+        <div class="big">点击或拖入图片</div>
+        <div class="muted">支持 jpg / png / webp / bmp,最大 200MB</div>
+        <input type="file" id="ifile" accept="image/*">
+      </label>
+      <div class="muted" id="ihint" style="margin-top:12px;display:none"></div>
+    </div>
+
+    <div class="card hidden" id="ieditor">
+      <div class="muted" style="margin-bottom:12px">👇 在图片上 <b>按住拖动</b> 圈出水印(框比水印略大更干净,可重画)</div>
+      <div class="stage" id="istage">
+        <img id="iframe" alt="图片">
+        <div class="box" id="ibox"></div>
+        <div class="tip" id="itip"><span>👆 在水印上拖一个框</span></div>
+      </div>
+      <div class="opts">
+        <label class="chip checked"><input type="radio" name="imethod" value="inpaint" checked> 高质量(推荐)</label>
+        <label class="chip"><input type="radio" name="imethod" value="delogo"> 快速</label>
+      </div>
+      <button class="btn" id="igo" disabled>开始去水印</button>
+    </div>
+
+    <div class="card hidden" id="iresult">
+      <div style="margin-bottom:12px"><span class="badge">✓ 完成</span> <span class="muted" id="istatus"></span></div>
+      <img class="result-img" id="iout" alt="去水印结果">
+      <div class="row-h">
+        <a class="plain" id="idl" download><button class="btn" style="margin-top:14px">⬇️ 下载图片</button></a>
+        <button class="btn ghost" id="iredo" style="margin-top:14px">重新框选</button>
+      </div>
+    </div>
+  </section>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let state = { videoId: null, scale: 1, box: null };  // box in display coords
 
-// ---------- 上传 ----------
-$("file").addEventListener("change", async (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  $("uploadHint").textContent = "上传中…";
-  const fd = new FormData();
-  fd.append("file", f);
+// ---------- 标签切换 ----------
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  $("panel-video").classList.toggle("hidden", t.dataset.tab !== "video");
+  $("panel-image").classList.toggle("hidden", t.dataset.tab !== "image");
+});
+
+// ---------- chip 选中样式 ----------
+function syncChips(name) {
+  document.querySelectorAll(`input[name=${name}]`).forEach(inp => {
+    inp.closest(".chip").classList.toggle("checked", inp.checked);
+  });
+}
+document.querySelectorAll(".chip input").forEach(inp => inp.addEventListener("change", () => {
+  if (inp.type === "radio") syncChips(inp.name);
+  else inp.closest(".chip").classList.toggle("checked", inp.checked);
+}));
+
+// ---------- 通用:拖框选区 ----------
+function makeDrawer(stage, img, box, tip, onReady) {
+  let scale = 1, drawing = false, sx = 0, sy = 0, region = null;
+  img.addEventListener("load", () => { scale = img.clientWidth / img.naturalWidth || 1; });
+  const at = (ev) => {
+    const r = stage.getBoundingClientRect();
+    const p = ev.touches ? ev.touches[0] : ev;
+    return { x: p.clientX - r.left, y: p.clientY - r.top };
+  };
+  const draw = (x, y, w, h) => {
+    box.style.left = x + "px"; box.style.top = y + "px";
+    box.style.width = w + "px"; box.style.height = h + "px";
+  };
+  const start = (ev) => { ev.preventDefault(); drawing = true; const p = at(ev);
+    sx = p.x; sy = p.y; box.style.display = "block"; tip.style.display = "none"; draw(sx, sy, 0, 0); };
+  const move = (ev) => { if (!drawing) return; ev.preventDefault(); const p = at(ev);
+    draw(Math.min(p.x, sx), Math.min(p.y, sy), Math.abs(p.x - sx), Math.abs(p.y - sy)); };
+  const end = () => {
+    if (!drawing) return; drawing = false;
+    const w = parseFloat(box.style.width), h = parseFloat(box.style.height);
+    if (w < 8 || h < 8) { box.style.display = "none"; tip.style.display = "flex"; region = null; return; }
+    const s = scale || 1;
+    region = [Math.round(parseFloat(box.style.left) / s), Math.round(parseFloat(box.style.top) / s),
+              Math.round(w / s), Math.round(h / s)];
+    onReady(region);
+  };
+  stage.addEventListener("mousedown", start);
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+  stage.addEventListener("touchstart", start, { passive: false });
+  stage.addEventListener("touchmove", move, { passive: false });
+  stage.addEventListener("touchend", end);
+  return {
+    getRegion: () => region,
+    reset: () => { box.style.display = "none"; tip.style.display = "flex"; region = null; }
+  };
+}
+
+// ---------- 通用:拖放上传到 input ----------
+function wireDrop(drop, input) {
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", e => {
+    e.preventDefault(); drop.classList.remove("over");
+    if (e.dataTransfer.files[0]) { input.files = e.dataTransfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true })); }
+  });
+}
+
+// ================= 视频流程 =================
+const vDraw = makeDrawer($("vstage"), $("vframe"), $("vbox"), $("vtip"),
+  () => { $("vgo").disabled = false; });
+wireDrop($("vdrop"), $("vfile"));
+let videoId = null;
+
+$("vfile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $("vhint").style.display = "block"; $("vhint").textContent = "上传中…";
+  const fd = new FormData(); fd.append("file", f);
   try {
     const r = await fetch("/api/upload", { method: "POST", body: fd });
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const d = await r.json();
-    state.videoId = d.video_id;
-    state.origW = d.width; state.origH = d.height;
-    const img = $("frame");
-    img.onload = () => { state.scale = img.clientWidth / d.width; };
-    img.src = d.frame;
-    $("uploadHint").textContent = `已上传:${d.width}×${d.height}${d.has_audio ? "(含音轨)" : ""}`;
-    $("editor").classList.remove("hidden");
-    resetResult();
-  } catch (err) {
-    $("uploadHint").textContent = "上传失败:" + err.message;
-  }
+    videoId = d.video_id; $("vframe").src = d.frame;
+    $("vhint").textContent = `已上传:${d.width}×${d.height}${d.has_audio ? " · 含音轨" : ""}`;
+    $("veditor").classList.remove("hidden");
+    $("vresult").classList.add("hidden"); $("vgo").disabled = true; vDraw.reset();
+  } catch (err) { $("vhint").textContent = "上传失败:" + err.message; }
 });
 
-// ---------- 拖框 ----------
-const stage = $("stage"), boxEl = $("box");
-let drawing = false, startX = 0, startY = 0;
-
-function pos(ev) {
-  const r = stage.getBoundingClientRect();
-  const p = ev.touches ? ev.touches[0] : ev;
-  return { x: p.clientX - r.left, y: p.clientY - r.top };
-}
-function startDraw(ev) {
-  ev.preventDefault();
-  drawing = true;
-  const p = pos(ev); startX = p.x; startY = p.y;
-  boxEl.style.display = "block";
-  updateBox(startX, startY, 0, 0);
-}
-function moveDraw(ev) {
-  if (!drawing) return;
-  ev.preventDefault();
-  const p = pos(ev);
-  const x = Math.min(p.x, startX), y = Math.min(p.y, startY);
-  updateBox(x, y, Math.abs(p.x - startX), Math.abs(p.y - startY));
-}
-function endDraw() {
-  if (!drawing) return;
-  drawing = false;
-  const w = parseFloat(boxEl.style.width), h = parseFloat(boxEl.style.height);
-  if (w < 8 || h < 8) { boxEl.style.display = "none"; return; }
-  state.box = {
-    x: parseFloat(boxEl.style.left), y: parseFloat(boxEl.style.top), w, h
-  };
-  $("go").disabled = false;
-  const s = state.scale || 1;
-  $("boxInfo").textContent =
-    `原图坐标 ≈ ${Math.round(state.box.x / s)},${Math.round(state.box.y / s)},` +
-    `${Math.round(w / s)},${Math.round(h / s)}`;
-}
-function updateBox(x, y, w, h) {
-  boxEl.style.left = x + "px"; boxEl.style.top = y + "px";
-  boxEl.style.width = w + "px"; boxEl.style.height = h + "px";
-}
-stage.addEventListener("mousedown", startDraw);
-window.addEventListener("mousemove", moveDraw);
-window.addEventListener("mouseup", endDraw);
-stage.addEventListener("touchstart", startDraw, { passive: false });
-stage.addEventListener("touchmove", moveDraw, { passive: false });
-stage.addEventListener("touchend", endDraw);
-
-// ---------- 处理 ----------
-$("go").addEventListener("click", async () => {
-  if (!state.box) return;
-  const s = state.scale || 1;
-  const region = [
-    Math.round(state.box.x / s), Math.round(state.box.y / s),
-    Math.round(state.box.w / s), Math.round(state.box.h / s)
-  ];
-  const method = document.querySelector("input[name=method]:checked").value;
-  const motion = $("motion").checked;
-  $("go").disabled = true;
-  $("progressCard").classList.remove("hidden");
-  resetResult();
-  $("statusText").textContent = motion ? "追踪并处理中…" : "处理中…";
-  $("bar").value = 0;
-
+$("vgo").addEventListener("click", async () => {
+  const region = vDraw.getRegion(); if (!region) return;
+  const method = document.querySelector("input[name=vmethod]:checked").value;
+  const motion = $("vmotion").checked;
+  $("vgo").disabled = true; $("vprogress").classList.remove("hidden");
+  $("vresult").classList.add("hidden");
+  $("vstatus").className = "status"; $("vstatus").textContent = motion ? "追踪并处理中…" : "处理中…";
+  $("vbar").style.width = "0%";
   try {
     const r = await fetch("/api/process", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        video_id: state.videoId, regions: [region],
-        method, motion, tracker: "template"
-      })
+      body: JSON.stringify({ video_id: videoId, regions: [region], method, motion, tracker: "template" })
     });
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const { job_id } = await r.json();
-    poll(job_id);
-  } catch (err) {
-    $("statusText").textContent = "出错:" + err.message;
-    $("go").disabled = false;
-  }
+    const timer = setInterval(async () => {
+      const d = await (await fetch("/api/jobs/" + job_id)).json();
+      $("vbar").style.width = (d.progress || 0) + "%";
+      if (d.status === "done") { clearInterval(timer); $("vstatus").textContent = "完成!";
+        const url = "/api/download/" + job_id; $("vvideo").src = url; $("vdl").href = url;
+        $("vresult").classList.remove("hidden"); $("vgo").disabled = false; }
+      else if (d.status === "error") { clearInterval(timer);
+        $("vstatus").className = "status err"; $("vstatus").textContent = "失败:" + (d.error || "未知");
+        $("vgo").disabled = false; }
+    }, 1000);
+  } catch (err) { $("vstatus").className = "status err"; $("vstatus").textContent = "出错:" + err.message;
+    $("vgo").disabled = false; }
 });
 
-function poll(jobId) {
-  const timer = setInterval(async () => {
-    const r = await fetch("/api/jobs/" + jobId);
-    const d = await r.json();
-    $("bar").value = d.progress || 0;
-    if (d.status === "done") {
-      clearInterval(timer);
-      $("statusText").textContent = "完成!";
-      const url = "/api/download/" + jobId;
-      $("resultVideo").src = url;
-      $("dlLink").href = url;
-      $("resultCard").classList.remove("hidden");
-      $("go").disabled = false;
-    } else if (d.status === "error") {
-      clearInterval(timer);
-      $("statusText").textContent = "处理失败:" + (d.error || "未知错误");
-      $("go").disabled = false;
-    }
-  }, 1000);
-}
+// ================= 图片流程 =================
+const iDraw = makeDrawer($("istage"), $("iframe"), $("ibox"), $("itip"),
+  () => { $("igo").disabled = false; });
+wireDrop($("idrop"), $("ifile"));
+let imageId = null;
 
-function resetResult() { $("resultCard").classList.add("hidden"); }
+$("ifile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $("ihint").style.display = "block"; $("ihint").textContent = "上传中…";
+  const fd = new FormData(); fd.append("file", f);
+  try {
+    const r = await fetch("/api/upload-image", { method: "POST", body: fd });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const d = await r.json();
+    imageId = d.image_id; $("iframe").src = d.frame;
+    $("ihint").textContent = `已上传:${d.width}×${d.height}`;
+    $("ieditor").classList.remove("hidden");
+    $("iresult").classList.add("hidden"); $("igo").disabled = true; iDraw.reset();
+  } catch (err) { $("ihint").textContent = "上传失败:" + err.message; }
+});
+
+$("igo").addEventListener("click", async () => {
+  const region = iDraw.getRegion(); if (!region) return;
+  const method = document.querySelector("input[name=imethod]:checked").value;
+  $("igo").disabled = true; $("igo").textContent = "处理中…";
+  try {
+    const r = await fetch("/api/process-image", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_id: imageId, regions: [region], method, feather: 4 })
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const d = await r.json();
+    $("iout").src = d.result_url + "?t=" + Date.now();
+    $("idl").href = d.result_url;
+    $("iresult").classList.remove("hidden");
+  } catch (err) { alert("处理失败:" + err.message); }
+  $("igo").disabled = false; $("igo").textContent = "开始去水印";
+});
+
+$("iredo").addEventListener("click", () => {
+  $("iresult").classList.add("hidden"); iDraw.reset(); $("igo").disabled = true;
+  $("ieditor").scrollIntoView({ behavior: "smooth" });
+});
 </script>
 </body>
 </html>

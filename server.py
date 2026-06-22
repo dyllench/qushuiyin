@@ -39,6 +39,13 @@ app = FastAPI(title="视频去水印")
 jobs: dict[str, dict] = {}
 
 
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v")
+
+# 处理好的图片:result_id -> 文件路径
+image_files: dict[str, str] = {}
+
+
 class ProcessReq(BaseModel):
     video_id: str
     regions: list[list[int]]          # [[x, y, w, h], ...](原始像素坐标)
@@ -50,16 +57,22 @@ class ProcessReq(BaseModel):
     crf: int = 18
 
 
-@app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
-    ext = os.path.splitext(file.filename or "")[1].lower() or ".mp4"
-    if ext not in (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"):
-        raise HTTPException(400, f"不支持的格式: {ext}")
-    video_id = uuid.uuid4().hex + ext
-    path = os.path.join(UPLOAD, video_id)
+class ImageReq(BaseModel):
+    image_id: str
+    regions: list[list[int]]
+    method: str = "inpaint"           # inpaint | delogo
+    feather: int = 3
+    radius: int = 3
 
-    size = 0
-    limit = MAX_UPLOAD_MB * 1024 * 1024
+
+async def _save_upload(file: UploadFile, allowed: tuple) -> tuple[str, str]:
+    """保存上传文件,返回 (文件名, 完整路径);超限或格式不符抛 HTTPException。"""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in allowed:
+        raise HTTPException(400, f"不支持的格式: {ext or '未知'}")
+    name = uuid.uuid4().hex + ext
+    path = os.path.join(UPLOAD, name)
+    size, limit = 0, MAX_UPLOAD_MB * 1024 * 1024
     with open(path, "wb") as f:
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
@@ -68,7 +81,12 @@ async def upload(file: UploadFile = File(...)):
                 os.remove(path)
                 raise HTTPException(413, f"文件超过 {MAX_UPLOAD_MB}MB 上限")
             f.write(chunk)
+    return name, path
 
+
+@app.post("/api/upload")
+async def upload(file: UploadFile = File(...)):
+    video_id, path = await _save_upload(file, VIDEO_EXTS)
     try:
         W, H, fps, has_audio = dw.ffprobe_info(path)
         frame = dw.grab_frame(path, 0)
@@ -76,7 +94,7 @@ async def upload(file: UploadFile = File(...)):
         os.path.exists(path) and os.remove(path)
         raise HTTPException(400, f"无法解析视频: {e}")
 
-    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     b64 = base64.b64encode(buf).decode()
     return {
         "video_id": video_id,
@@ -84,6 +102,56 @@ async def upload(file: UploadFile = File(...)):
         "has_audio": has_audio,
         "frame": "data:image/jpeg;base64," + b64,
     }
+
+
+@app.post("/api/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    image_id, path = await _save_upload(file, IMAGE_EXTS)
+    img = cv2.imread(path)
+    if img is None:
+        os.path.exists(path) and os.remove(path)
+        raise HTTPException(400, "无法读取图片")
+    H, W = img.shape[:2]
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    b64 = base64.b64encode(buf).decode()
+    return {
+        "image_id": image_id,
+        "width": W, "height": H,
+        "frame": "data:image/jpeg;base64," + b64,
+    }
+
+
+@app.post("/api/process-image")
+def process_image_ep(req: ImageReq):
+    path = os.path.join(UPLOAD, req.image_id)
+    if not os.path.exists(path):
+        raise HTTPException(404, "图片不存在,请重新上传")
+    if not req.regions:
+        raise HTTPException(400, "请先框选水印区域")
+
+    result_id = uuid.uuid4().hex
+    ext = os.path.splitext(req.image_id)[1] or ".png"
+    out = os.path.join(OUTPUT, result_id + ext)
+    try:
+        processor.process_image(
+            path, out, [list(r) for r in req.regions],
+            method=req.method, feather=req.feather, radius=req.radius)
+    except Exception as e:
+        raise HTTPException(500, f"处理失败: {e}")
+    image_files[result_id] = out
+    return {"result_url": f"/api/download-image/{result_id}"}
+
+
+@app.get("/api/download-image/{result_id}")
+def download_image(result_id: str):
+    path = image_files.get(result_id)
+    if not path or not os.path.exists(path):
+        raise HTTPException(404, "成品不存在")
+    ext = os.path.splitext(path)[1].lstrip(".") or "png"
+    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png",
+            "webp": "webp", "bmp": "bmp"}.get(ext, "png")
+    return FileResponse(path, media_type=f"image/{mime}",
+                        filename=f"nowm_{result_id[:8]}.{ext}")
 
 
 @app.post("/api/process")
