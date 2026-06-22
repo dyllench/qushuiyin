@@ -1,0 +1,11 @@
+data/
+__pycache__/
+*.pyc
+.git/
+.venv/
+venv/
+*.mp4
+*.mov
+preview*.png
+track_preview*.mp4
+regions.json

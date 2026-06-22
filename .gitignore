@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+data/
+*.mp4
+*.mov
+*.mkv
+preview*.png
+track_preview*.mp4
+regions.json
+.DS_Store
+.claude/
