@@ -15,9 +15,10 @@ import os
 import shutil
 import threading
 import uuid
+import zipfile
 
 import cv2
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -152,6 +153,71 @@ def download_image(result_id: str):
             "webp": "webp", "bmp": "bmp"}.get(ext, "png")
     return FileResponse(path, media_type=f"image/{mime}",
                         filename=f"nowm_{result_id[:8]}.{ext}")
+
+
+# ---------------- 去背景(批量) ----------------
+@app.post("/api/bg-process")
+async def bg_process(files: list[UploadFile] = File(...),
+                     mode: str = Form("ai"),
+                     export: str = Form("transparent")):
+    if not files:
+        raise HTTPException(400, "请至少上传一张图片")
+    saved = []
+    for f in files:
+        try:
+            name, path = await _save_upload(f, IMAGE_EXTS)
+            saved.append((os.path.splitext(f.filename or name)[0], path))
+        except HTTPException:
+            raise
+    job_id = uuid.uuid4().hex
+    jobs[job_id] = {"status": "queued", "progress": 0, "error": None,
+                    "output": None, "filename": None}
+    threading.Thread(target=_run_bg, args=(job_id, saved, mode, export),
+                     daemon=True).start()
+    return {"job_id": job_id, "count": len(saved)}
+
+
+def _run_bg(job_id, saved, mode, export):
+    job = jobs[job_id]
+    job["status"] = "processing"
+    total = len(saved)
+    outputs = []
+    try:
+        for i, (stem, path) in enumerate(saved):
+            out = os.path.join(OUTPUT, f"{uuid.uuid4().hex}.png")
+            processor.remove_background(path, out, mode=mode, export=export)
+            outputs.append((stem, out))
+            job["progress"] = int((i + 1) * 100 / total)
+
+        if len(outputs) == 1:
+            job["output"] = outputs[0][1]
+            job["filename"] = f"{outputs[0][0]}_nobg.png"
+        else:
+            zip_path = os.path.join(OUTPUT, f"{job_id}.zip")
+            with zipfile.ZipFile(zip_path, "w") as z:
+                seen = {}
+                for stem, out in outputs:
+                    n = seen.get(stem, 0); seen[stem] = n + 1
+                    arc = f"{stem}_nobg.png" if n == 0 else f"{stem}_nobg_{n}.png"
+                    z.write(out, arc)
+            job["output"] = zip_path
+            job["filename"] = "去背景结果.zip"
+        job["status"] = "done"
+        job["progress"] = 100
+    except Exception as e:
+        job["status"] = "error"
+        job["error"] = str(e)
+
+
+@app.get("/api/bg-download/{job_id}")
+def bg_download(job_id: str):
+    job = jobs.get(job_id)
+    if not job or job["status"] != "done" or not job["output"]:
+        raise HTTPException(404, "成品尚未就绪")
+    is_zip = job["output"].endswith(".zip")
+    return FileResponse(job["output"],
+                        media_type="application/zip" if is_zip else "image/png",
+                        filename=job["filename"])
 
 
 @app.post("/api/process")

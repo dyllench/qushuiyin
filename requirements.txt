@@ -3,3 +3,6 @@ uvicorn[standard]
 python-multipart
 opencv-python-headless
 numpy
+pillow
+rembg
+onnxruntime

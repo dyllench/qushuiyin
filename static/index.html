@@ -35,8 +35,8 @@
   }
   header p { color: var(--muted); margin: 0; font-size: 14px; }
 
-  .tabs { display: flex; gap: 8px; background: #fff; padding: 6px;
-          border-radius: 14px; box-shadow: var(--shadow); margin: 0 auto 22px; max-width: 360px; }
+  .tabs { display: flex; gap: 6px; background: #fff; padding: 6px;
+          border-radius: 14px; box-shadow: var(--shadow); margin: 0 auto 22px; max-width: 460px; }
   .tab { flex: 1; text-align: center; padding: 11px 0; border-radius: 10px;
          font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer;
          border: 0; background: transparent; transition: .2s; }
@@ -91,6 +91,17 @@
   .status.err { color: #e74c3c; }
 
   video, .result-img { max-width: 100%; border-radius: 12px; display: block; }
+  /* 透明结果用棋盘格背景显示,方便看出真透明 */
+  .checker { background-image:
+      linear-gradient(45deg, #e6e6ef 25%, transparent 25%),
+      linear-gradient(-45deg, #e6e6ef 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #e6e6ef 75%),
+      linear-gradient(-45deg, transparent 75%, #e6e6ef 75%);
+    background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+    background-color: #fff; border-radius: 12px; padding: 6px; }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .thumbs img { width: 60px; height: 60px; object-fit: cover; border-radius: 8px;
+                box-shadow: 0 2px 6px rgba(0,0,0,.12); }
   .badge { display: inline-block; background: var(--ok); color: #fff; font-size: 13px;
            padding: 3px 10px; border-radius: 20px; }
   .row-h { display: flex; gap: 10px; }
@@ -108,6 +119,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="video">🎬 视频</button>
     <button class="tab" data-tab="image">🖼️ 图片</button>
+    <button class="tab" data-tab="bg">✂️ 去背景</button>
   </div>
 
   <!-- ============ 视频 ============ -->
@@ -184,6 +196,45 @@
       </div>
     </div>
   </section>
+
+  <!-- ============ 去背景 ============ -->
+  <section id="panel-bg" class="hidden">
+    <div class="card">
+      <label class="drop" id="bdrop">
+        <div class="icon">✂️</div>
+        <div class="big">点击或拖入图片(可多选批量)</div>
+        <div class="muted">jpg / png / webp / bmp,可一次选多张</div>
+        <input type="file" id="bfile" accept="image/*" multiple>
+      </label>
+      <div class="thumbs" id="bthumbs"></div>
+      <div class="muted" id="bhint" style="margin-top:10px;display:none"></div>
+    </div>
+
+    <div class="card hidden" id="beditor">
+      <div class="muted" style="margin-bottom:10px">处理方式</div>
+      <div class="opts">
+        <label class="chip checked"><input type="radio" name="bmode" value="ai" checked> 🤖 AI 智能去背景</label>
+        <label class="chip"><input type="radio" name="bmode" value="checker"> 🩹 去假透明格子</label>
+      </div>
+      <div class="muted" style="margin:14px 0 6px">导出格式</div>
+      <div class="opts">
+        <label class="chip checked"><input type="radio" name="bexport" value="transparent" checked> 透明 PNG</label>
+        <label class="chip"><input type="radio" name="bexport" value="white"> 白底 PNG</label>
+      </div>
+      <button class="btn" id="bgo">开始处理</button>
+    </div>
+
+    <div class="card hidden" id="bprogress">
+      <div class="status" id="bstatus">处理中…</div>
+      <div class="bar"><i id="bbar"></i></div>
+    </div>
+
+    <div class="card hidden" id="bresult">
+      <div style="margin-bottom:12px"><span class="badge">✓ 完成</span> <span class="muted" id="bcount"></span></div>
+      <div class="checker" id="bpreviewWrap"><img class="result-img" id="bout" alt="去背景结果"></div>
+      <a class="plain" id="bdl" download><button class="btn" style="margin-top:14px" id="bdlbtn">⬇️ 下载</button></a>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -193,8 +244,8 @@ const $ = (id) => document.getElementById(id);
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
   t.classList.add("active");
-  $("panel-video").classList.toggle("hidden", t.dataset.tab !== "video");
-  $("panel-image").classList.toggle("hidden", t.dataset.tab !== "image");
+  ["video", "image", "bg"].forEach(name =>
+    $("panel-" + name).classList.toggle("hidden", t.dataset.tab !== name));
 });
 
 // ---------- chip 选中样式 ----------
@@ -349,6 +400,69 @@ $("igo").addEventListener("click", async () => {
 $("iredo").addEventListener("click", () => {
   $("iresult").classList.add("hidden"); iDraw.reset(); $("igo").disabled = true;
   $("ieditor").scrollIntoView({ behavior: "smooth" });
+});
+
+// ================= 去背景流程(批量) =================
+wireDrop($("bdrop"), $("bfile"));
+let bgFiles = [];
+
+$("bfile").addEventListener("change", (e) => {
+  bgFiles = Array.from(e.target.files || []);
+  if (!bgFiles.length) return;
+  $("bthumbs").innerHTML = "";
+  bgFiles.slice(0, 12).forEach(f => {
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(f); $("bthumbs").appendChild(img);
+  });
+  $("bhint").style.display = "block";
+  $("bhint").textContent = `已选择 ${bgFiles.length} 张图片`;
+  $("beditor").classList.remove("hidden");
+  $("bresult").classList.add("hidden");
+});
+
+$("bgo").addEventListener("click", async () => {
+  if (!bgFiles.length) return;
+  const mode = document.querySelector("input[name=bmode]:checked").value;
+  const exp = document.querySelector("input[name=bexport]:checked").value;
+  $("bgo").disabled = true;
+  $("bprogress").classList.remove("hidden"); $("bresult").classList.add("hidden");
+  $("bstatus").className = "status";
+  $("bstatus").textContent = mode === "ai" ? "AI 抠图中(首次稍慢)…" : "处理中…";
+  $("bbar").style.width = "0%";
+  const fd = new FormData();
+  bgFiles.forEach(f => fd.append("files", f));
+  fd.append("mode", mode); fd.append("export", exp);
+  try {
+    const r = await fetch("/api/bg-process", { method: "POST", body: fd });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const { job_id, count } = await r.json();
+    const timer = setInterval(async () => {
+      const d = await (await fetch("/api/jobs/" + job_id)).json();
+      $("bbar").style.width = (d.progress || 0) + "%";
+      if (d.status === "done") {
+        clearInterval(timer); $("bstatus").textContent = "完成!";
+        const url = "/api/bg-download/" + job_id;
+        $("bdl").href = url;
+        if (count === 1) {
+          $("bpreviewWrap").style.display = "block";
+          $("bout").src = url + "?t=" + Date.now();
+          $("bdlbtn").textContent = "⬇️ 下载 PNG";
+          $("bcount").textContent = "";
+        } else {
+          $("bpreviewWrap").style.display = "none";
+          $("bdlbtn").textContent = `⬇️ 下载全部(${count} 张 · ZIP)`;
+          $("bcount").textContent = `共处理 ${count} 张`;
+        }
+        $("bresult").classList.remove("hidden"); $("bgo").disabled = false;
+      } else if (d.status === "error") {
+        clearInterval(timer); $("bstatus").className = "status err";
+        $("bstatus").textContent = "失败:" + (d.error || "未知"); $("bgo").disabled = false;
+      }
+    }, 1000);
+  } catch (err) {
+    $("bstatus").className = "status err"; $("bstatus").textContent = "出错:" + err.message;
+    $("bgo").disabled = false;
+  }
 });
 </script>
 </body>

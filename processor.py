@@ -7,8 +7,66 @@ import os
 import tempfile
 
 import cv2
+import numpy as np
 
 import dewatermark as dw
+
+# ---------------- 去背景 / 假透明格子还原 ----------------
+_BG_MODEL = os.environ.get("BG_MODEL", "u2netp")   # 免费档用轻量 u2netp;升级后可设 u2net
+_bg_session = None
+
+
+def _bg_session_get():
+    """懒加载 rembg 会话(首次会下载模型)。"""
+    global _bg_session
+    if _bg_session is None:
+        from rembg import new_session
+        _bg_session = new_session(_BG_MODEL)
+    return _bg_session
+
+
+def _strip_checker(pil_img):
+    """把"假透明"棋盘格(烘焙进像素的灰白格子)还原成真透明。返回 RGBA PIL。"""
+    from PIL import Image
+    rgb = np.array(pil_img.convert("RGB")).astype(np.int16)
+    H, W = rgb.shape[:2]
+    out = np.dstack([rgb.astype(np.uint8),
+                     np.full((H, W), 255, np.uint8)])
+    sat = rgb.max(2) - rgb.min(2)          # 低饱和=灰
+    val = rgb.mean(2)                      # 亮度
+    graylight = (sat <= 18) & (val >= 140)  # 格子是浅灰/白
+    if graylight.sum() < 0.03 * H * W:     # 没有明显格子,原样返回(全不透明)
+        return Image.fromarray(out, "RGBA")
+    # 找格子的两种灰度(直方图两个峰)
+    hist = np.bincount(np.clip(val[graylight].astype(int), 0, 255), minlength=256)
+    p1 = int(np.argmax(hist))
+    hist[max(0, p1 - 12):p1 + 12] = 0
+    p2 = int(np.argmax(hist))
+    tol = 14
+    grid = graylight & ((np.abs(val - p1) <= tol) | (np.abs(val - p2) <= tol))
+    out[..., 3][grid] = 0
+    return Image.fromarray(out, "RGBA")
+
+
+def remove_background(input_path, output_path, *, mode="ai", export="transparent"):
+    """
+    去背景。mode: ai(AI 抠图) | checker(去假透明格子)。
+    export: transparent(透明 PNG) | white(白底 PNG)。
+    """
+    from PIL import Image
+    src = Image.open(input_path).convert("RGBA")
+    if mode == "checker":
+        rgba = _strip_checker(src)
+    else:
+        from rembg import remove
+        rgba = remove(src, session=_bg_session_get())  # 返回 RGBA PIL
+
+    if export == "white":
+        bg = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        bg.alpha_composite(rgba)
+        bg.convert("RGB").save(output_path)            # 白底,无透明通道
+    else:
+        rgba.save(output_path)                         # 透明 PNG
 
 
 def process_image(input_path, output_path, regions, *,
