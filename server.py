@@ -14,6 +14,7 @@ import base64
 import os
 import shutil
 import threading
+import time
 import uuid
 import zipfile
 
@@ -33,6 +34,33 @@ os.makedirs(UPLOAD, exist_ok=True)
 os.makedirs(OUTPUT, exist_ok=True)
 
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "200"))
+
+# 自动清理:删除超过 N 分钟的旧文件(上传 + 成品),默认 60 分钟,每 10 分钟扫一次
+CLEANUP_TTL = int(os.environ.get("CLEANUP_TTL_MIN", "60")) * 60
+CLEANUP_EVERY = 600
+
+
+def _sweep():
+    """删除 data/ 下超过 TTL 的旧文件。"""
+    cutoff = time.time() - CLEANUP_TTL
+    for d in (UPLOAD, OUTPUT):
+        try:
+            for name in os.listdir(d):
+                p = os.path.join(d, name)
+                if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
+                    os.remove(p)
+        except Exception:
+            pass
+
+
+def _janitor():
+    _sweep()                       # 启动时先清一次(清掉上次遗留)
+    while True:
+        time.sleep(CLEANUP_EVERY)
+        _sweep()
+
+
+threading.Thread(target=_janitor, daemon=True).start()
 
 app = FastAPI(title="视频去水印")
 

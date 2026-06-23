@@ -51,6 +51,8 @@ git push -u origin main
 | 变量 | 作用 | 默认 |
 |------|------|------|
 | `MAX_UPLOAD_MB` | 上传大小上限(MB) | 200 |
+| `CLEANUP_TTL_MIN` | 自动删除上传/成品的保留分钟数(超时即清) | 60 |
+| `BG_MODEL` | AI 去背景模型;`u2netp` 轻量省内存,`u2net` 质量更高更吃内存 | u2netp |
 
 ## 文件说明
 
