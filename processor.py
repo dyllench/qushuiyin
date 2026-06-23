@@ -59,7 +59,19 @@ def remove_background(input_path, output_path, *, mode="ai", export="transparent
         rgba = _strip_checker(src)
     else:
         from rembg import remove
-        rgba = remove(src, session=_bg_session_get())  # 返回 RGBA PIL
+        # 大图先缩小再喂给模型(省内存),抠出的 alpha 再放大回原尺寸贴回原图
+        max_side = int(os.environ.get("BG_MAX_SIDE", "1600"))
+        w, h = src.size
+        if max(w, h) > max_side:
+            s = max_side / max(w, h)
+            small = src.resize((max(1, int(w * s)), max(1, int(h * s))))
+            cut = remove(small, session=_bg_session_get())
+            alpha = cut.getchannel("A").resize((w, h))
+            rgba = src.copy()
+            rgba.putalpha(alpha)
+            del small, cut, alpha
+        else:
+            rgba = remove(src, session=_bg_session_get())  # 返回 RGBA PIL
 
     if export == "white":
         bg = Image.new("RGBA", rgba.size, (255, 255, 255, 255))

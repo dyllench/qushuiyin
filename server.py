@@ -67,6 +67,9 @@ app = FastAPI(title="视频去水印")
 # 内存里的任务表(单实例、少量用户场景足够;重启即清空)
 jobs: dict[str, dict] = {}
 
+# 处理锁:同一时间只跑一个重任务,避免叠加把内存撑爆(尤其 512MB 小内存)
+_proc_lock = threading.Lock()
+
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v")
@@ -182,9 +185,10 @@ def process_image_ep(req: ImageReq):
     ext = os.path.splitext(req.image_id)[1] or ".png"
     out = os.path.join(OUTPUT, result_id + ext)
     try:
-        processor.process_image(
-            path, out, [list(r) for r in req.regions],
-            method=req.method, feather=req.feather, radius=req.radius)
+        with _proc_lock:
+            processor.process_image(
+                path, out, [list(r) for r in req.regions],
+                method=req.method, feather=req.feather, radius=req.radius)
     except Exception as e:
         raise HTTPException(500, f"处理失败: {e}")
     # 去水印保持原文件名(原格式不变)
@@ -232,7 +236,8 @@ def _run_bg(job_id, saved, mode, export):
         for i, (out_name, path) in enumerate(saved):
             ext = os.path.splitext(out_name)[1] or ".png"
             out = os.path.join(OUTPUT, uuid.uuid4().hex + ext)
-            processor.remove_background(path, out, mode=mode, export=export)
+            with _proc_lock:
+                processor.remove_background(path, out, mode=mode, export=export)
             outputs.append((out_name, out))
             job["progress"] = int((i + 1) * 100 / total)
 
@@ -298,11 +303,12 @@ def _run(job_id, path, out, req: ProcessReq):
         job["progress"] = int(done * 100 / total) if total else 0
 
     try:
-        processor.process_video(
-            path, out, [list(r) for r in req.regions],
-            method=req.method, motion=req.motion, tracker=req.tracker,
-            feather=req.feather, radius=req.radius, crf=req.crf,
-            progress_cb=cb)
+        with _proc_lock:
+            processor.process_video(
+                path, out, [list(r) for r in req.regions],
+                method=req.method, motion=req.motion, tracker=req.tracker,
+                feather=req.feather, radius=req.radius, crf=req.crf,
+                progress_cb=cb)
         job["status"] = "done"
         job["progress"] = 100
     except Exception as e:
