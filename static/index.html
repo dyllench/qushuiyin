@@ -219,7 +219,7 @@
       <div class="muted" style="margin:14px 0 6px">导出格式</div>
       <div class="opts">
         <label class="chip checked"><input type="radio" name="bexport" value="transparent" checked> 透明 PNG</label>
-        <label class="chip"><input type="radio" name="bexport" value="white"> 白底 PNG</label>
+        <label class="chip"><input type="radio" name="bexport" value="white"> 白底(保留原格式)</label>
       </div>
       <button class="btn" id="bgo">开始处理</button>
     </div>
@@ -446,7 +446,7 @@ $("bgo").addEventListener("click", async () => {
         if (count === 1) {
           $("bpreviewWrap").style.display = "block";
           $("bout").src = url + "?t=" + Date.now();
-          $("bdlbtn").textContent = "⬇️ 下载 PNG";
+          $("bdlbtn").textContent = "⬇️ 下载";
           $("bcount").textContent = "";
         } else {
           $("bpreviewWrap").style.display = "none";

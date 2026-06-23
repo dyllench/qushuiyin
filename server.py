@@ -70,9 +70,28 @@ jobs: dict[str, dict] = {}
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v")
+ALPHA_EXTS = (".png", ".webp")            # 能保存透明的格式
 
-# 处理好的图片:result_id -> 文件路径
-image_files: dict[str, str] = {}
+# 处理好的图片:result_id -> {"path":..., "name": 下载用文件名}
+image_files: dict[str, dict] = {}
+# 上传文件名记忆:内部 id -> 用户上传时的原始文件名
+orig_names: dict[str, str] = {}
+
+
+def _img_media(ext):
+    return {"jpg": "jpeg", "jpeg": "jpeg", "png": "png",
+            "webp": "webp", "bmp": "bmp"}.get(ext.lstrip(".").lower(), "png")
+
+
+def _bg_out_name(orig, export):
+    """去背景输出名:尽量保持原名。透明模式下 jpg/bmp 必须改成 .png(jpg 存不了透明)。"""
+    stem, ext = os.path.splitext(orig or "")
+    ext = ext.lower()
+    if not stem:
+        stem, ext = "image", ".png"
+    if export == "white":
+        return stem + (ext or ".png")     # 白底:原名原格式完全不变
+    return stem + (ext if ext in ALPHA_EXTS else ".png")
 
 
 class ProcessReq(BaseModel):
@@ -110,6 +129,7 @@ async def _save_upload(file: UploadFile, allowed: tuple) -> tuple[str, str]:
                 os.remove(path)
                 raise HTTPException(413, f"文件超过 {MAX_UPLOAD_MB}MB 上限")
             f.write(chunk)
+    orig_names[name] = file.filename or name
     return name, path
 
 
@@ -167,20 +187,20 @@ def process_image_ep(req: ImageReq):
             method=req.method, feather=req.feather, radius=req.radius)
     except Exception as e:
         raise HTTPException(500, f"处理失败: {e}")
-    image_files[result_id] = out
+    # 去水印保持原文件名(原格式不变)
+    out_name = orig_names.get(req.image_id) or (result_id + ext)
+    image_files[result_id] = {"path": out, "name": out_name}
     return {"result_url": f"/api/download-image/{result_id}"}
 
 
 @app.get("/api/download-image/{result_id}")
 def download_image(result_id: str):
-    path = image_files.get(result_id)
-    if not path or not os.path.exists(path):
+    rec = image_files.get(result_id)
+    if not rec or not os.path.exists(rec["path"]):
         raise HTTPException(404, "成品不存在")
-    ext = os.path.splitext(path)[1].lstrip(".") or "png"
-    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png",
-            "webp": "webp", "bmp": "bmp"}.get(ext, "png")
-    return FileResponse(path, media_type=f"image/{mime}",
-                        filename=f"nowm_{result_id[:8]}.{ext}")
+    ext = os.path.splitext(rec["path"])[1]
+    return FileResponse(rec["path"], media_type=f"image/{_img_media(ext)}",
+                        filename=rec["name"])
 
 
 # ---------------- 去背景(批量) ----------------
@@ -192,11 +212,9 @@ async def bg_process(files: list[UploadFile] = File(...),
         raise HTTPException(400, "请至少上传一张图片")
     saved = []
     for f in files:
-        try:
-            name, path = await _save_upload(f, IMAGE_EXTS)
-            saved.append((os.path.splitext(f.filename or name)[0], path))
-        except HTTPException:
-            raise
+        name, path = await _save_upload(f, IMAGE_EXTS)
+        out_name = _bg_out_name(f.filename or name, export)   # 保持原文件名
+        saved.append((out_name, path))
     job_id = uuid.uuid4().hex
     jobs[job_id] = {"status": "queued", "progress": 0, "error": None,
                     "output": None, "filename": None}
@@ -211,22 +229,29 @@ def _run_bg(job_id, saved, mode, export):
     total = len(saved)
     outputs = []
     try:
-        for i, (stem, path) in enumerate(saved):
-            out = os.path.join(OUTPUT, f"{uuid.uuid4().hex}.png")
+        for i, (out_name, path) in enumerate(saved):
+            ext = os.path.splitext(out_name)[1] or ".png"
+            out = os.path.join(OUTPUT, uuid.uuid4().hex + ext)
             processor.remove_background(path, out, mode=mode, export=export)
-            outputs.append((stem, out))
+            outputs.append((out_name, out))
             job["progress"] = int((i + 1) * 100 / total)
 
         if len(outputs) == 1:
             job["output"] = outputs[0][1]
-            job["filename"] = f"{outputs[0][0]}_nobg.png"
+            job["filename"] = outputs[0][0]           # 原文件名
         else:
             zip_path = os.path.join(OUTPUT, f"{job_id}.zip")
             with zipfile.ZipFile(zip_path, "w") as z:
                 seen = {}
-                for stem, out in outputs:
-                    n = seen.get(stem, 0); seen[stem] = n + 1
-                    arc = f"{stem}_nobg.png" if n == 0 else f"{stem}_nobg_{n}.png"
+                for out_name, out in outputs:
+                    # 同名去重:重名时加 (2)、(3)…,避免覆盖
+                    if out_name in seen:
+                        seen[out_name] += 1
+                        stem, ext = os.path.splitext(out_name)
+                        arc = f"{stem}({seen[out_name]}){ext}"
+                    else:
+                        seen[out_name] = 1
+                        arc = out_name
                     z.write(out, arc)
             job["output"] = zip_path
             job["filename"] = "去背景结果.zip"
@@ -242,10 +267,12 @@ def bg_download(job_id: str):
     job = jobs.get(job_id)
     if not job or job["status"] != "done" or not job["output"]:
         raise HTTPException(404, "成品尚未就绪")
-    is_zip = job["output"].endswith(".zip")
-    return FileResponse(job["output"],
-                        media_type="application/zip" if is_zip else "image/png",
-                        filename=job["filename"])
+    out = job["output"]
+    if out.endswith(".zip"):
+        media = "application/zip"
+    else:
+        media = f"image/{_img_media(os.path.splitext(out)[1])}"
+    return FileResponse(out, media_type=media, filename=job["filename"])
 
 
 @app.post("/api/process")
