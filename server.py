@@ -19,8 +19,8 @@ import uuid
 import zipfile
 
 import cv2
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -63,6 +63,13 @@ def _janitor():
 threading.Thread(target=_janitor, daemon=True).start()
 
 app = FastAPI(title="视频去水印")
+
+
+@app.exception_handler(Exception)
+async def _json_errors(request: Request, exc: Exception):
+    # 任何未处理异常都返回 JSON(而不是纯文本 500),方便前端显示真正原因
+    return JSONResponse(status_code=500, content={"detail": f"服务器错误: {exc}"})
+
 
 # 内存里的任务表(单实例、少量用户场景足够;重启即清空)
 jobs: dict[str, dict] = {}
