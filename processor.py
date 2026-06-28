@@ -130,7 +130,7 @@ def _delogo(inp, out, regions, has_audio, crf, cb):
         cb(0, 100)
     flt = dw.build_delogo_filter(regions)
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", inp, "-vf", flt,
-           "-c:v", "libx264", "-crf", str(crf), "-preset", "medium"]
+           "-c:v", "libx264", "-crf", str(crf), "-preset", dw.VIDEO_PRESET]
     cmd += ["-c:a", "copy"] if has_audio else ["-an"]
     cmd.append(out)
     dw.run(cmd)

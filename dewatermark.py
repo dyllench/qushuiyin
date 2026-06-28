@@ -38,6 +38,9 @@ import numpy as np
 
 REGIONS_FILE = "regions.json"
 
+# x264 编码速度档。服务器 CPU 弱时用 veryfast/ultrafast 大幅加速;本地可设 medium 求画质。
+VIDEO_PRESET = os.environ.get("VIDEO_PRESET", "veryfast")
+
 
 # --------------------------------------------------------------------------- #
 # 工具函数
@@ -288,7 +291,7 @@ def _default_out(inp):
 def _remove_delogo(inp, out, regions, has_audio, crf):
     flt = build_delogo_filter(regions)
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-stats", "-i", inp, "-vf", flt,
-           "-c:v", "libx264", "-crf", str(crf), "-preset", "medium"]
+           "-c:v", "libx264", "-crf", str(crf), "-preset", VIDEO_PRESET]
     cmd += ["-c:a", "copy"] if has_audio else ["-an"]
     cmd.append(out)
     print("delogo 处理中...")
@@ -329,7 +332,7 @@ def _encode_and_mux(raw_video, src_for_audio, out, crf, has_audio):
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", raw_video]
     if has_audio:
         cmd += ["-i", src_for_audio, "-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy"]
-    cmd += ["-c:v", "libx264", "-crf", str(crf), "-preset", "medium",
+    cmd += ["-c:v", "libx264", "-crf", str(crf), "-preset", VIDEO_PRESET,
             "-pix_fmt", "yuv420p", out]
     print("合成音视频中...")
     run(cmd)

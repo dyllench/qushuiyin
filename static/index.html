@@ -345,7 +345,13 @@ $("vgo").addEventListener("click", async () => {
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const { job_id } = await r.json();
     const timer = setInterval(async () => {
-      const d = await (await fetch("/api/jobs/" + job_id)).json();
+      const jr = await fetch("/api/jobs/" + job_id);
+      if (jr.status === 404) {   // 任务丢失(多半服务器内存超限重启了)
+        clearInterval(timer); $("vstatus").className = "status err";
+        $("vstatus").textContent = "处理中断(服务器可能因内存/超时重启)。视频建议在本地运行,或稍后重试。";
+        $("vgo").disabled = false; return;
+      }
+      const d = await jr.json();
       $("vbar").style.width = (d.progress || 0) + "%";
       if (d.status === "done") { clearInterval(timer); $("vstatus").textContent = "完成!";
         const url = "/api/download/" + job_id; $("vvideo").src = url; $("vdl").href = url;
@@ -437,7 +443,13 @@ $("bgo").addEventListener("click", async () => {
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const { job_id, count } = await r.json();
     const timer = setInterval(async () => {
-      const d = await (await fetch("/api/jobs/" + job_id)).json();
+      const jr = await fetch("/api/jobs/" + job_id);
+      if (jr.status === 404) {
+        clearInterval(timer); $("bstatus").className = "status err";
+        $("bstatus").textContent = "处理中断(服务器可能因内存重启)。请减少图片数量或稍后重试。";
+        $("bgo").disabled = false; return;
+      }
+      const d = await jr.json();
       $("bbar").style.width = (d.progress || 0) + "%";
       if (d.status === "done") {
         clearInterval(timer); $("bstatus").textContent = "完成!";
